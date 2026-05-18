@@ -1,24 +1,22 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Saira_Condensed } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { SmoothScrollProvider } from "@/components/providers/smooth-scroll-provider";
 import "./globals.css";
 
 /* ============================================================
    Fonts
    ============================================================ */
-
 const inter = Inter({
     subsets: ["latin"],
     variable: "--font-sans",
     display: "swap",
 });
-
 const jetbrainsMono = JetBrains_Mono({
     subsets: ["latin"],
     variable: "--font-mono",
     display: "swap",
 });
-
 const sairaCondensed = Saira_Condensed({
     subsets: ["latin"],
     weight: ["700", "800", "900"],
@@ -31,7 +29,6 @@ const siteUrl = "https://donjean.dev";
 /* ============================================================
    Root metadata — per-locale metadata set in [lang]/layout
    ============================================================ */
-
 export const metadata: Metadata = {
     metadataBase: new URL(siteUrl),
     title: {
@@ -84,6 +81,8 @@ export default function RootLayout({
                 <SmoothScrollProvider>{children}</SmoothScrollProvider>
                 {/* Paper-grain texture overlay */}
                 <div className="grain-overlay" aria-hidden />
+                {/* Vercel Web Analytics — cookieless, RGPD-compliant */}
+                <Analytics />
             </body>
         </html>
     );
