@@ -1,13 +1,13 @@
 "use client";
 
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
     Center,
     Environment,
     MeshTransmissionMaterial,
     Text3D,
 } from "@react-three/drei";
-import { Suspense, useRef } from "react";
+import { Suspense, useMemo, useRef } from "react";
 import type { Group } from "three";
 
 /* ============================================================
@@ -27,7 +27,7 @@ const easeOutBack = (t: number) => {
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /* ============================================================
-   Animation waypoints & timing
+   Animation waypoints & timing (desktop baseline)
    ============================================================ */
 
 const CAM_START = { x: 3, y: 1.8, z: 7 };
@@ -41,6 +41,27 @@ const TOTAL_DURATION = DURATION_ORBIT + DURATION_RECEDE;
 
 const DEV_APPEAR_START = 3.5;
 const DEV_APPEAR_DURATION = 0.5;
+
+/* ============================================================
+   Responsive zoom factor
+   ============================================================
+   The DONJEAN.dev wordmark spans roughly -3 to +5 world units
+   in x (DONJEAN centered + .dev offset at x=3.85). On narrow
+   viewports (mobile portrait, aspect ~0.46), the camera at z=14
+   only sees ~4.4 units of width — the wordmark overshoots.
+
+   We scale all camera positions and the lookAt y-offset uniformly
+   by a factor derived from the canvas aspect ratio. Uniform scaling
+   preserves the orbit angle and final framing on desktop while
+   simply receding the camera proportionally on narrow viewports.
+*/
+function getZoomFactor(aspect: number): number {
+    // Floor aspect at 0.5 to cap scaling on ultra-thin viewports
+    // (avoids excessive zoom-out on landscape phones rotated to portrait).
+    const a = Math.max(aspect, 0.5);
+    // Aspects ≥ 1.4 (desktop landscape) get no adjustment.
+    return Math.max(1, 1.4 / a);
+}
 
 /* ============================================================
    Glass material props shared by DONJEAN and .dev
@@ -72,6 +93,8 @@ export function DonjeanScene3D({ onSceneReady }: DonjeanScene3DProps) {
 
     return (
         <Canvas
+            // Initial camera position is overwritten on first frame by Animator,
+            // which applies the responsive zoom factor based on actual canvas size.
             camera={{ position: [CAM_START.x, CAM_START.y, CAM_START.z], fov: 38 }}
             dpr={[1, 2]}
             gl={{ antialias: true, alpha: true }}
@@ -103,29 +126,56 @@ function Animator({
     devGroupRef: React.RefObject<Group | null>;
 }) {
     const notifiedRef = useRef(false);
+    const { size } = useThree();
+
+    // Recompute waypoints whenever canvas size changes (resize, device rotate).
+    // Uniform scaling by k preserves orbit angles; narrower viewports recede further.
+    const waypoints = useMemo(() => {
+        const aspect = size.width / size.height;
+        const k = getZoomFactor(aspect);
+        return {
+            start: {
+                x: CAM_START.x * k,
+                y: CAM_START.y * k,
+                z: CAM_START.z * k,
+            },
+            face: {
+                x: CAM_FACE.x * k,
+                y: CAM_FACE.y * k,
+                z: CAM_FACE.z * k,
+            },
+            background: {
+                x: CAM_BACKGROUND.x * k,
+                y: CAM_BACKGROUND.y * k,
+                z: CAM_BACKGROUND.z * k,
+            },
+            lookBackgroundY: LOOK_BACKGROUND_Y * k,
+        };
+    }, [size.width, size.height]);
 
     useFrame((state) => {
         const t = state.clock.getElapsedTime();
         const cam = state.camera;
+        const { start, face, background, lookBackgroundY } = waypoints;
 
         if (t < DURATION_ORBIT) {
             const localT = t / DURATION_ORBIT;
             const eased = easeInOutCubic(localT);
-            cam.position.x = lerp(CAM_START.x, CAM_FACE.x, eased);
-            cam.position.y = lerp(CAM_START.y, CAM_FACE.y, eased);
-            cam.position.z = lerp(CAM_START.z, CAM_FACE.z, eased);
+            cam.position.x = lerp(start.x, face.x, eased);
+            cam.position.y = lerp(start.y, face.y, eased);
+            cam.position.z = lerp(start.z, face.z, eased);
             cam.lookAt(0, 0, 0);
         } else if (t < TOTAL_DURATION) {
             const localT = (t - DURATION_ORBIT) / DURATION_RECEDE;
             const eased = easeOutCubic(localT);
-            cam.position.x = lerp(CAM_FACE.x, CAM_BACKGROUND.x, eased);
-            cam.position.y = lerp(CAM_FACE.y, CAM_BACKGROUND.y, eased);
-            cam.position.z = lerp(CAM_FACE.z, CAM_BACKGROUND.z, eased);
-            const lookY = lerp(0, LOOK_BACKGROUND_Y, eased);
+            cam.position.x = lerp(face.x, background.x, eased);
+            cam.position.y = lerp(face.y, background.y, eased);
+            cam.position.z = lerp(face.z, background.z, eased);
+            const lookY = lerp(0, lookBackgroundY, eased);
             cam.lookAt(0, lookY, 0);
         } else {
-            cam.position.set(CAM_BACKGROUND.x, CAM_BACKGROUND.y, CAM_BACKGROUND.z);
-            cam.lookAt(0, LOOK_BACKGROUND_Y, 0);
+            cam.position.set(background.x, background.y, background.z);
+            cam.lookAt(0, lookBackgroundY, 0);
             if (!notifiedRef.current) {
                 notifiedRef.current = true;
                 onSceneReady?.();
